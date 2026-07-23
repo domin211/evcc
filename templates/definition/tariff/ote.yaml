@@ -7,14 +7,56 @@ products:
 requirements:
   evcc: ["skiptest"]
   description:
-    en: "15-minute Czech day-ahead electricity prices from OTE, converted to CZK using the official ČNB exchange rate published by OTE. No API key is required."
-    de: "Tschechische 15-Minuten-Day-Ahead-Strompreise von OTE, umgerechnet in CZK mit dem von OTE veröffentlichten offiziellen ČNB-Wechselkurs. Kein API-Schlüssel erforderlich."
+    en: "15-minute Czech day-ahead electricity prices from OTE with optional ČEZ HDO VT/NT distribution charges from Home Assistant."
+    de: "Tschechische 15-Minuten-Day-Ahead-Strompreise von OTE mit optionalen ČEZ-HDO-Verteilentgelten für HT/NT aus Home Assistant."
 group: price
 countries: ["CZ"]
 params:
+  - name: highTariff
+    type: float
+    unit: CZK/kWh
+    required: true
+    description:
+      en: VT distribution charge
+      de: HT-Verteilentgelt
+  - name: lowTariff
+    type: float
+    unit: CZK/kWh
+    required: true
+    description:
+      en: NT distribution charge
+      de: NT-Verteilentgelt
+  - name: hdoUrl
+    type: string
+    required: true
+    default: http://homeassistant.local:8123
+    description:
+      en: Home Assistant URL
+      de: Home-Assistant-URL
+  - name: hdoToken
+    type: string
+    mask: true
+    required: true
+    description:
+      en: Home Assistant long-lived access token
+      de: Langlebiges Home-Assistant-Zugriffstoken
+  - name: hdoEntity
+    type: string
+    required: true
+    description:
+      en: ČEZ HDO schedule entity
+      de: ČEZ-HDO-Zeitplanentität
+    help:
+      en: Example: sensor.cez_hdo_schedule_home
+      de: Beispiel: sensor.cez_hdo_schedule_home
   - preset: tariff-base
   - preset: tariff-features
 render: |
   type: ote
+  highTariff: {{ .highTariff }}
+  lowTariff: {{ .lowTariff }}
+  hdoUrl: {{ .hdoUrl }}
+  hdoToken: {{ .hdoToken }}
+  hdoEntity: {{ .hdoEntity }}
   {{ include "tariff-base" . }}
   {{ include "tariff-features" . }}
