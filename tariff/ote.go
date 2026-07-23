@@ -2,11 +2,13 @@ package tariff
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,8 +26,13 @@ const (
 type Ote struct {
 	*request.Helper
 	*embed
-	log  *util.Logger
-	data *util.Monitor[api.Rates]
+	log         *util.Logger
+	data        *util.Monitor[api.Rates]
+	highTariff  float64
+	lowTariff   float64
+	hdoURL      string
+	hdoToken    string
+	hdoEntity   string
 }
 
 var _ api.Tariff = (*Ote)(nil)
@@ -36,7 +43,12 @@ func init() {
 
 func NewOteFromConfig(other map[string]any) (api.Tariff, error) {
 	var cc struct {
-		embed `mapstructure:",squash"`
+		embed      `mapstructure:",squash"`
+		HighTariff float64
+		LowTariff  float64
+		HdoURL     string
+		HdoToken   string
+		HdoEntity  string
 	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
@@ -46,12 +58,22 @@ func NewOteFromConfig(other map[string]any) (api.Tariff, error) {
 		return nil, err
 	}
 
-	log := util.NewLogger("ote")
+	hdoConfigured := cc.HdoURL != "" || cc.HdoToken != "" || cc.HdoEntity != "" || cc.HighTariff != 0 || cc.LowTariff != 0
+	if hdoConfigured && (cc.HdoURL == "" || cc.HdoToken == "" || cc.HdoEntity == "") {
+		return nil, errors.New("VT/NT charges require hdoUrl, hdoToken and hdoEntity")
+	}
+
+	log := util.NewLogger("ote").Redact(cc.HdoToken)
 	t := &Ote{
-		Helper: request.NewHelper(log),
-		embed:  &cc.embed,
-		log:    log,
-		data:   util.NewMonitor[api.Rates](2 * time.Hour),
+		Helper:      request.NewHelper(log),
+		embed:       &cc.embed,
+		log:         log,
+		data:        util.NewMonitor[api.Rates](2 * time.Hour),
+		highTariff:  cc.HighTariff,
+		lowTariff:   cc.LowTariff,
+		hdoURL:      strings.TrimRight(cc.HdoURL, "/"),
+		hdoToken:    cc.HdoToken,
+		hdoEntity:   cc.HdoEntity,
 	}
 
 	return runOrError(t)
@@ -96,6 +118,23 @@ type oteIndexEnvelope struct {
 	} `xml:"Body"`
 }
 
+type hdoScheduleItem struct {
+	Start  string `json:"start"`
+	End    string `json:"end"`
+	Tariff string `json:"tariff"`
+}
+
+type hdoState struct {
+	Attributes struct {
+		Schedule []hdoScheduleItem `json:"schedule"`
+	} `json:"attributes"`
+}
+
+type hdoPeriod struct {
+	Start, End time.Time
+	Low        bool
+}
+
 func oteEnvelope(operation, params string) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:pub="%s">
@@ -130,6 +169,75 @@ func (t *Ote) call(operation, body string, dst any) error {
 	return nil
 }
 
+func parseHdoTime(value string, loc *time.Location) (time.Time, error) {
+	if ts, err := time.Parse(time.RFC3339, value); err == nil {
+		return ts, nil
+	}
+	return time.ParseInLocation("2006-01-02T15:04:05", value, loc)
+}
+
+func (t *Ote) fetchHdoSchedule(loc *time.Location) ([]hdoPeriod, error) {
+	if t.hdoURL == "" {
+		return nil, nil
+	}
+
+	uri := t.hdoURL + "/api/states/" + t.hdoEntity
+	req, err := http.NewRequest(http.MethodGet, uri, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+t.hdoToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := t.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("Home Assistant HDO request failed: %s", resp.Status)
+	}
+
+	var state hdoState
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		return nil, err
+	}
+	if len(state.Attributes.Schedule) == 0 {
+		return nil, errors.New("Home Assistant HDO schedule is empty")
+	}
+
+	periods := make([]hdoPeriod, 0, len(state.Attributes.Schedule))
+	for _, item := range state.Attributes.Schedule {
+		start, err := parseHdoTime(item.Start, loc)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HDO start %q: %w", item.Start, err)
+		}
+		end, err := parseHdoTime(item.End, loc)
+		if err != nil {
+			return nil, fmt.Errorf("invalid HDO end %q: %w", item.End, err)
+		}
+		periods = append(periods, hdoPeriod{
+			Start: start,
+			End:   end,
+			Low:   strings.EqualFold(item.Tariff, "low") || strings.EqualFold(item.Tariff, "nt"),
+		})
+	}
+	return periods, nil
+}
+
+func (t *Ote) distributionCharge(ts time.Time, periods []hdoPeriod) float64 {
+	for _, period := range periods {
+		if !ts.Before(period.Start) && ts.Before(period.End) {
+			if period.Low {
+				return t.lowTariff
+			}
+			return t.highTariff
+		}
+	}
+	return t.highTariff
+}
+
 func (t *Ote) fetch(start, end time.Time) (api.Rates, error) {
 	startDate := start.Format(time.DateOnly)
 	endDate := end.Format(time.DateOnly)
@@ -162,6 +270,11 @@ func (t *Ote) fetch(start, end time.Time) (api.Rates, error) {
 		return nil, err
 	}
 
+	hdoPeriods, err := t.fetchHdoSchedule(loc)
+	if err != nil {
+		return nil, err
+	}
+
 	res := make(api.Rates, 0, len(prices.Body.Response.Result.Items))
 	for _, item := range prices.Body.Response.Result.Items {
 		if item.PeriodResolution != "PT15M" || item.PeriodIndex < 1 || item.EmergencyState != 0 {
@@ -178,7 +291,7 @@ func (t *Ote) fetch(start, end time.Time) (api.Rates, error) {
 		}
 		periodStart := day.Add(time.Duration(item.PeriodIndex-1) * SlotDuration)
 		periodEnd := periodStart.Add(SlotDuration)
-		priceCZKPerKWh := item.Price * exchangeRate / 1000
+		priceCZKPerKWh := item.Price*exchangeRate/1000 + t.distributionCharge(periodStart, hdoPeriods)
 
 		res = append(res, api.Rate{
 			Start: periodStart.Local(),
