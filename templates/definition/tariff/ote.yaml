@@ -7,42 +7,42 @@ products:
 requirements:
   evcc: ["skiptest"]
   description:
-    en: "15-minute Czech day-ahead electricity prices from OTE with optional ČEZ HDO VT/NT distribution charges from Home Assistant."
-    de: "Tschechische 15-Minuten-Day-Ahead-Strompreise von OTE mit optionalen ČEZ-HDO-Verteilentgelten für HT/NT aus Home Assistant."
+    en: "15-minute Czech day-ahead electricity prices from OTE. Optional ČEZ HDO VT/NT distribution charges can be enabled in advanced settings using Home Assistant."
+    de: "Tschechische 15-Minuten-Day-Ahead-Strompreise von OTE. Optionale ČEZ-HDO-Verteilentgelte für HT/NT können in den erweiterten Einstellungen über Home Assistant aktiviert werden."
 group: price
 countries: ["CZ"]
 params:
   - name: highTariff
     type: float
     unit: CZK/kWh
-    required: true
+    advanced: true
     description:
       en: VT distribution charge
       de: HT-Verteilentgelt
   - name: lowTariff
     type: float
     unit: CZK/kWh
-    required: true
+    advanced: true
     description:
       en: NT distribution charge
       de: NT-Verteilentgelt
   - name: hdoUrl
     type: string
-    required: true
+    advanced: true
     default: http://homeassistant.local:8123
     description:
-      en: Home Assistant URL
-      de: Home-Assistant-URL
+      en: Home Assistant URL for ČEZ HDO
+      de: Home-Assistant-URL für ČEZ HDO
   - name: hdoToken
     type: string
     mask: true
-    required: true
+    advanced: true
     description:
       en: Home Assistant long-lived access token
       de: Langlebiges Home-Assistant-Zugriffstoken
   - name: hdoEntity
     type: string
-    required: true
+    advanced: true
     description:
       en: ČEZ HDO schedule entity
       de: ČEZ-HDO-Zeitplanentität
@@ -53,10 +53,12 @@ params:
   - preset: tariff-features
 render: |
   type: ote
+  {{- if .hdoEntity }}
   highTariff: {{ .highTariff }}
   lowTariff: {{ .lowTariff }}
   hdoUrl: {{ .hdoUrl }}
   hdoToken: {{ .hdoToken }}
   hdoEntity: {{ .hdoEntity }}
+  {{- end }}
   {{ include "tariff-base" . }}
   {{ include "tariff-features" . }}
