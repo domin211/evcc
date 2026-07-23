@@ -29,7 +29,7 @@ params:
   - name: hdoUrl
     type: string
     advanced: true
-    default: http://homeassistant.local:8123
+    default: "http://homeassistant.local:8123"
     description:
       en: Home Assistant URL for ČEZ HDO
       de: Home-Assistant-URL für ČEZ HDO
@@ -47,8 +47,8 @@ params:
       en: ČEZ HDO schedule entity
       de: ČEZ-HDO-Zeitplanentität
     help:
-      en: Example: sensor.cez_hdo_schedule_home
-      de: Beispiel: sensor.cez_hdo_schedule_home
+      en: "Example: sensor.cez_hdo_schedule_home"
+      de: "Beispiel: sensor.cez_hdo_schedule_home"
   - preset: tariff-base
   - preset: tariff-features
 render: |
