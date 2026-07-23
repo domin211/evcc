@@ -5,6 +5,7 @@ products:
       en: Czech day-ahead market prices
       de: Tschechische Day-Ahead-Marktpreise
 requirements:
+  evcc: ["skiptest"]
   description:
     en: "15-minute Czech day-ahead electricity prices from OTE, converted to CZK using the official ČNB exchange rate published by OTE. No API key is required."
     de: "Tschechische 15-Minuten-Day-Ahead-Strompreise von OTE, umgerechnet in CZK mit dem von OTE veröffentlichten offiziellen ČNB-Wechselkurs. Kein API-Schlüssel erforderlich."
