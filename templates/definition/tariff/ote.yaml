@@ -1,0 +1,19 @@
+template: ote
+products:
+  - brand: OTE
+    description:
+      en: Czech day-ahead market prices
+      de: Tschechische Day-Ahead-Marktpreise
+requirements:
+  description:
+    en: "15-minute Czech day-ahead electricity prices from OTE, converted to CZK using the official ČNB exchange rate published by OTE. No API key is required."
+    de: "Tschechische 15-Minuten-Day-Ahead-Strompreise von OTE, umgerechnet in CZK mit dem von OTE veröffentlichten offiziellen ČNB-Wechselkurs. Kein API-Schlüssel erforderlich."
+group: price
+countries: ["CZ"]
+params:
+  - preset: tariff-base
+  - preset: tariff-features
+render: |
+  type: ote
+  {{ include "tariff-base" . }}
+  {{ include "tariff-features" . }}
