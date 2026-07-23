@@ -202,10 +202,7 @@ func (t *Ote) run(done chan error) {
 			now := time.Now()
 			var err error
 			data, err = t.fetch(now, now.AddDate(0, 0, 1))
-			if err != nil {
-				return backoffPermanentError(err)
-			}
-			return nil
+			return err
 		}, bo()); err != nil {
 			if reportError(&once, done, err) {
 				return
